@@ -31,6 +31,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      - name: Verify CARGO_REGISTRY_TOKEN is available
+        env:
+          TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "${TOKEN}" ]; then
+            echo "::error title=Missing secret::CARGO_REGISTRY_TOKEN is not available to this workflow. Add it under Settings -> Secrets and variables -> Actions -> New repository secret."
+            exit 1
+          fi
+          echo "CARGO_REGISTRY_TOKEN is present."
+
       - name: Check whether this version is already published
         id: check
         run: |
@@ -41,6 +51,18 @@ jobs:
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Verify token is accepted by crates.io
+        if: steps.check.outputs.published == 'false'
+        env:
+          TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: ${TOKEN}" https://crates.io/api/v1/me)
+          if [ "$code" != "200" ]; then
+            echo "::error title=Invalid crates.io token::crates.io rejected CARGO_REGISTRY_TOKEN (HTTP ${code}). Check that the token is current and scoped for publishing."
+            exit 1
+          fi
+          echo "Token accepted by crates.io."
 
       - name: Publish
         if: steps.check.outputs.published == 'false'
@@ -77,14 +99,37 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Build and upload binary
-        uses: taiki-e/upload-rust-binary-action@v1
+      - name: Install cross toolchain (musl)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install cross toolchain (aarch64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          mkdir -p .cargo
+          printf '[target.aarch64-unknown-linux-gnu]\nlinker = "aarch64-linux-gnu-gcc"\n' >> .cargo/config.toml
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/gcv.exe" "dist/gcv-${{ matrix.target }}.exe"
+          else
+            cp "target/${{ matrix.target }}/release/gcv" "dist/gcv-${{ matrix.target }}"
+          fi
+          ls -l dist
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
         with:
-          bin: gcv
-          target: ${{ matrix.target }}
-          archive: gcv-$tag-$target
-          checksum: sha256
-          token: ${{ secrets.GITHUB_TOKEN }}
+          files: dist/*
+          fail_on_unmatched_files: true
 
   release-notes:
     name: Attach release notes
@@ -102,7 +147,7 @@ jobs:
             flag { print }
           ' CHANGELOG.md > release_notes.md
           if [ ! -s release_notes.md ]; then
-            echo "See the assets below." > release_notes.md
+            echo "Release ${version}. See the assets below." > release_notes.md
           fi
           cat release_notes.md
 
