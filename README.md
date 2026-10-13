@@ -1,5 +1,9 @@
 # gcv — a beautiful terminal resume
 
+[![CI](https://github.com/anindya-dey/gcv/actions/workflows/ci.yml/badge.svg)](https://github.com/anindya-dey/gcv/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/gcv.svg)](https://crates.io/crates/gcv)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 `gcv` renders a resume as a rich, themed document right in your terminal. Your
 resume lives as a single file in a public git repo; anyone can view it with one
 command.
@@ -45,6 +49,8 @@ Mumbai, India · hello@anindyadey.com · https://www.anindyadey.com
 ## Install
 
 ```console
+cargo install gcv
+# or, from a checkout
 cargo install --path .
 # or build a release binary
 cargo build --release
