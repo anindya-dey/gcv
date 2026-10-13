@@ -31,16 +31,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Verify CARGO_REGISTRY_TOKEN is available
-        env:
-          TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          if [ -z "${TOKEN}" ]; then
-            echo "::error title=Missing secret::CARGO_REGISTRY_TOKEN is not available to this workflow. Add it under Settings -> Secrets and variables -> Actions -> New repository secret."
-            exit 1
-          fi
-          echo "CARGO_REGISTRY_TOKEN is present."
-
       - name: Check whether this version is already published
         id: check
         run: |
@@ -52,23 +42,28 @@ jobs:
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Verify token is accepted by crates.io
+      - name: Publish to crates.io
         if: steps.check.outputs.published == 'false'
         env:
-          TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          RAW_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: ${TOKEN}" https://crates.io/api/v1/me)
-          if [ "$code" != "200" ]; then
-            echo "::error title=Invalid crates.io token::crates.io rejected CARGO_REGISTRY_TOKEN (HTTP ${code}). Check that the token is current and scoped for publishing."
+          if [ -z "${RAW_TOKEN}" ]; then
+            echo "::error title=Missing secret::CARGO_REGISTRY_TOKEN is not available to this workflow. Add it under Settings -> Secrets and variables -> Actions -> New repository secret."
             exit 1
           fi
-          echo "Token accepted by crates.io."
-
-      - name: Publish
-        if: steps.check.outputs.published == 'false'
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --locked
+          # Trim any stray whitespace/newlines that a paste may have introduced.
+          TOKEN=$(printf '%s' "${RAW_TOKEN}" | tr -d '[:space:]')
+          echo "Token present (length ${#TOKEN})."
+          set +e
+          cargo publish --locked --token "${TOKEN}" 2>&1 | tee publish.log
+          status=${PIPESTATUS[0]}
+          if [ "${status}" -ne 0 ]; then
+            echo "--- cargo publish output (tail) ---"
+            tail -n 20 publish.log
+            msg=$(tail -n 8 publish.log | tr '\n' ' ' | sed 's/"/ /g')
+            echo "::error title=cargo publish failed (exit ${status})::${msg}"
+            exit "${status}"
+          fi
 
   upload-assets:
     name: Build & upload ${{ matrix.target }}
