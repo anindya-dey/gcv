@@ -53,14 +53,15 @@ jobs:
           fi
           # Trim any stray whitespace/newlines that a paste may have introduced.
           TOKEN=$(printf '%s' "${RAW_TOKEN}" | tr -d '[:space:]')
+          export CARGO_REGISTRY_TOKEN="${TOKEN}"
           echo "Token present (length ${#TOKEN})."
           set +e
-          cargo publish --locked --token "${TOKEN}" 2>&1 | tee publish.log
+          cargo publish --locked 2>&1 | tee "${RUNNER_TEMP}/publish.log"
           status=${PIPESTATUS[0]}
           if [ "${status}" -ne 0 ]; then
             echo "--- cargo publish output (tail) ---"
-            tail -n 20 publish.log
-            msg=$(tail -n 8 publish.log | tr '\n' ' ' | sed 's/"/ /g')
+            tail -n 20 "${RUNNER_TEMP}/publish.log"
+            msg=$(tail -n 8 "${RUNNER_TEMP}/publish.log" | tr '\n' ' ' | sed 's/"/ /g')
             echo "::error title=cargo publish failed (exit ${status})::${msg}"
             exit "${status}"
           fi
